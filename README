@@ -1,0 +1,4 @@
+Install and test:
+cabal sandbox init
+cabal --require-sandbox install -j
+.cabal-sandbox/bin/tic-tac-lambda

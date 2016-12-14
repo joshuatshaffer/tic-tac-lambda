@@ -60,7 +60,7 @@ winCheck gs@(InPlay b _ t)
     isWin t b = any (all (== t)) $ map (map (b !!)) winSpans
       where
         winSpans :: [[Int]]
-        winSpans = (rows ++ cols ++ dias)
+        winSpans = rows ++ cols ++ dias
           where ns = [0..2]
                 ks = map (*3) ns
                 rows = [[n + k | n <- ns] | k <- ks]
@@ -68,7 +68,7 @@ winCheck gs@(InPlay b _ t)
                 dias = [zipWith (+) ns ks, zipWith (+) ns (reverse ks)]
 
     isFull :: [Mark] -> Bool
-    isFull = all (/= Vacant)
+    isFull = notElem Vacant
 
 nextTurn :: GameState -> GameState
 nextTurn (InPlay b c O) = InPlay b c X
@@ -90,8 +90,8 @@ gameLoop gs@(InPlay b c t) = do
                               'a' -> return $ moveCursor Left
                               's' -> return $ moveCursor Down
                               'd' -> return $ moveCursor Right
-                              'e' -> return $ placeMark
-                              'q' -> return $ quitGame
+                              'e' -> return placeMark
+                              'q' -> return quitGame
                               _   -> getStateTransition
 
 gameLoop gs@(Won b t) = do
@@ -106,7 +106,7 @@ gameLoop gs@(Won b t) = do
                          'n' -> gameLoop Quit
                          _   -> promtUser
 
-gameLoop gs@(Quit) = do
+gameLoop Quit = do
   putStrLn "Goodbye"
   return ()
 

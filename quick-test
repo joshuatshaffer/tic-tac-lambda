@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cd $(dirname $0)
+cabal sandbox init
+cabal --require-sandbox install -j
+echo "----- Running program -----"
+exec .cabal-sandbox/bin/tic-tac-lambda

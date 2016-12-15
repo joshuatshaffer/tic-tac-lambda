@@ -1,6 +1,9 @@
-#!/usr/bin/env runhaskell
-import Prelude hiding (Left, Right)
-import System.IO
+module Main where
+
+import           Control.Monad       (replicateM_)
+import           Prelude             hiding (Left, Right)
+import           System.Console.ANSI
+import           System.IO
 
 data Direction = Up | Down | Left | Right
 
@@ -11,8 +14,8 @@ data GameState = InPlay [Mark] Int Mark | Won [Mark] Mark | Quit
 
 instance Show Mark where
   show Vacant = " "
-  show O = "O"
-  show X = "X"
+  show O      = "O"
+  show X      = "X"
 
 showBoard :: [Mark] -> Int -> String
 showBoard b c = concat $ zipWith (++) shownSquares
@@ -22,12 +25,6 @@ showBoard b c = concat $ zipWith (++) shownSquares
   where
     shownCursor = [if c == n then '>' else ' ' | n <- [0..8]]
     shownSquares = zipWith (:) shownCursor (map show b)
-
-printBoard :: [Mark] -> Int -> IO ()
-printBoard b c = putStr $ '\r' : showBoard b c
-
-printBoard1 :: [Mark] -> IO ()
-printBoard1 b = printBoard b (negate 1)
 
 replaceNth :: Int -> a -> [a] -> [a]
 replaceNth n newX (x:xs) | n == 0 = newX:xs
@@ -73,47 +70,67 @@ winCheck gs@(InPlay b _ t)
 nextTurn :: GameState -> GameState
 nextTurn (InPlay b c O) = InPlay b c X
 nextTurn (InPlay b c X) = InPlay b c O
-nextTurn x = x
+nextTurn x              = x
+
+
+eraseLine :: IO ()
+eraseLine = clearLine >> cursorUpLine 1
+
+getKeyPress :: IO Char
+getKeyPress = do k <- getChar
+                 cursorBackward 1
+                 clearFromCursorToLineEnd
+                 return k
+
+printBoard :: [Mark] -> Int -> IO ()
+printBoard b c = replicateM_ 5 eraseLine >> putStr (showBoard b c)
+
+printBoard1 :: [Mark] -> IO ()
+printBoard1 b = printBoard b (negate 1)
 
 gameLoop :: GameState -> IO ()
 gameLoop gs@(InPlay b c t) = do
     printBoard b c
     putStr $ show t
-    putStrLn "'s turn."
+    putStr "'s turn."
+    hFlush stdout
 
     stateTransform <- getStateTransition
     gameLoop $ stateTransform gs
   where
-    getStateTransition = do k <- getChar
+    getStateTransition = do k <- getKeyPress
                             case k of
                               'w' -> return $ moveCursor Up
                               'a' -> return $ moveCursor Left
                               's' -> return $ moveCursor Down
                               'd' -> return $ moveCursor Right
                               'e' -> return placeMark
-                              'q' -> return quitGame
+                              'q' -> putChar '\n' >> return quitGame
                               _   -> getStateTransition
 
 gameLoop gs@(Won b t) = do
     printBoard1 b
     putStr $ show t
     putStrLn " won."
-    putStrLn "New game? [y/n]"
+    putStr "New game? [y/n]"
+    hFlush stdout
     promtUser
-  where promtUser = do k <- getChar
+  where promtUser = do k <- getKeyPress
                        case k of
-                         'y' -> startNewGame
-                         'n' -> gameLoop Quit
+                         'y' -> clearLine >> startNewGame
+                         'n' -> clearLine >> gameLoop Quit
                          _   -> promtUser
 
 gameLoop Quit = do
-  putStrLn "Goodbye"
+  putStrLn "\nGoodbye"
   return ()
 
 startNewGame :: IO ()
-startNewGame = gameLoop $ InPlay (replicate 9 Vacant) 4 X
+startNewGame = putStr "\n\n\n\n\n\n" >> gameLoop (InPlay (replicate 9 Vacant) 4 X)
 
 main :: IO ()
 main = do
   hSetBuffering stdin NoBuffering
+  hideCursor
   startNewGame
+  showCursor

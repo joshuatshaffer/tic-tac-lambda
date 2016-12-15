@@ -105,28 +105,29 @@ gameLoop gs@(InPlay b c t) = do
                               's' -> return $ moveCursor Down
                               'd' -> return $ moveCursor Right
                               'e' -> return placeMark
-                              'q' -> putChar '\n' >> return quitGame
+                              'q' -> return quitGame
                               _   -> getStateTransition
 
 gameLoop gs@(Won b t) = do
     printBoard1 b
-    putStr $ show t
-    putStrLn " won."
+    if t == Vacant
+      then putStrLn "It's a tie."
+      else putStr (show t) >> putStrLn " won."
     putStr "New game? [y/n]"
     hFlush stdout
     promtUser
   where promtUser = do k <- getKeyPress
                        case k of
-                         'y' -> clearLine >> startNewGame
-                         'n' -> clearLine >> gameLoop Quit
+                         'y' -> clearLine >> putStr "\n" >> startNewGame
+                         'n' -> eraseLine >> gameLoop Quit
                          _   -> promtUser
 
 gameLoop Quit = do
-  putStrLn "\nGoodbye"
+  putStrLn "\n\nGoodbye"
   return ()
 
 startNewGame :: IO ()
-startNewGame = putStr "\n\n\n\n\n\n" >> gameLoop (InPlay (replicate 9 Vacant) 4 X)
+startNewGame = putStr "\n\n\n\n\n" >> gameLoop (InPlay (replicate 9 Vacant) 4 X)
 
 main :: IO ()
 main = do

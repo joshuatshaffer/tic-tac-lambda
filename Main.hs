@@ -51,15 +51,15 @@ nextTurn x = x
 
 placeMark :: GameState -> IO ()
 placeMark gs@(b, c, t)
-    | b !! c == Vacant = winCheck (replaceNth c t b, c, nextTurn t)
+    | b !! c == Vacant = winCheck (replaceNth c t b, c, t)
     | otherwise = gameLoop gs
 
 
 winCheck :: GameState -> IO ()
-winCheck gs@(b, _, t)
+winCheck (b, c, t)
   | isWin t b = winScreen b t
   | isFull b  = winScreen b Vacant
-  | otherwise = gameLoop gs
+  | otherwise = gameLoop (b, c, nextTurn t)
   where
     isWin :: Mark -> Board -> Bool
     isWin t b = any (all (== t)) $ map (map (b !!)) winSpans

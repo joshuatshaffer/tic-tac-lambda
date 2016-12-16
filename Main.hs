@@ -1,23 +1,23 @@
 module Main where
 
-import           Control.Monad       (replicateM_)
+import           Control.Monad       (replicateM_, void)
 import           Prelude             hiding (Left, Right)
 import           System.Console.ANSI
 import           System.IO
 
 data Direction = Up | Down | Left | Right
-
 data Mark = Vacant | O | X
   deriving (Eq)
-
-data GameState = InPlay [Mark] Int Mark | Won [Mark] Mark | Quit
+type Cursor = Int
+type Board = [Mark]
+type GameState = (Board, Cursor, Mark)
 
 instance Show Mark where
   show Vacant = " "
   show O      = "O"
   show X      = "X"
 
-showBoard :: [Mark] -> Int -> String
+showBoard :: Board -> Cursor -> String
 showBoard b c = concat $ zipWith (++) shownSquares
     ["|","|","\n--+--+--\n",
      "|","|","\n--+--+--\n",
@@ -31,29 +31,37 @@ replaceNth n newX (x:xs) | n == 0 = newX:xs
                          | otherwise = x:replaceNth (n-1) newX xs
 
 
-moveCursor :: Direction -> GameState -> GameState
-moveCursor d (InPlay b c t) = InPlay b nc t
-  where nc = case d of
-              Up    -> (c - 3) `mod` 9
-              Down  -> (c + 3) `mod` 9
-              Left  -> (c - 1) `mod` 3 + ((c `quot` 3) * 3)
-              Right -> (c + 1) `mod` 3 + ((c `quot` 3) * 3)
+moveCursorUp    :: Cursor -> Cursor
+moveCursorUp    c = (c - 3) `mod` 9
 
-placeMark :: GameState -> GameState
-placeMark gs@(InPlay b c t)
-    | b !! c == Vacant = nextTurn $ winCheck $ InPlay (replaceNth c t b) c t
-    | otherwise = gs
+moveCursorDown  :: Cursor -> Cursor
+moveCursorDown  c = (c + 3) `mod` 9
 
-quitGame :: GameState -> GameState
-quitGame _ = Quit
+moveCursorLeft  :: Cursor -> Cursor
+moveCursorLeft  c = (c - 1) `mod` 3 + ((c `quot` 3) * 3)
 
-winCheck :: GameState -> GameState
-winCheck gs@(InPlay b _ t)
-  | isWin t b = Won b t
-  | isFull b  = Won b Vacant
-  | otherwise = gs
+moveCursorRight :: Cursor -> Cursor
+moveCursorRight c = (c + 1) `mod` 3 + ((c `quot` 3) * 3)
+
+
+nextTurn :: Mark -> Mark
+nextTurn O = X
+nextTurn X = O
+nextTurn x = x
+
+placeMark :: GameState -> IO ()
+placeMark gs@(b, c, t)
+    | b !! c == Vacant = winCheck (replaceNth c t b, c, nextTurn t)
+    | otherwise = gameLoop gs
+
+
+winCheck :: GameState -> IO ()
+winCheck gs@(b, _, t)
+  | isWin t b = winScreen b t
+  | isFull b  = winScreen b Vacant
+  | otherwise = gameLoop gs
   where
-    isWin :: Mark -> [Mark] -> Bool
+    isWin :: Mark -> Board -> Bool
     isWin t b = any (all (== t)) $ map (map (b !!)) winSpans
       where
         winSpans :: [[Int]]
@@ -64,74 +72,84 @@ winCheck gs@(InPlay b _ t)
                 cols = [[n + k | k <- ks] | n <- ns]
                 dias = [zipWith (+) ns ks, zipWith (+) ns (reverse ks)]
 
-    isFull :: [Mark] -> Bool
+    isFull :: Board -> Bool
     isFull = notElem Vacant
-
-nextTurn :: GameState -> GameState
-nextTurn (InPlay b c O) = InPlay b c X
-nextTurn (InPlay b c X) = InPlay b c O
-nextTurn x              = x
 
 
 eraseLine :: IO ()
 eraseLine = clearLine >> cursorUpLine 1
 
 getKeyPress :: IO Char
-getKeyPress = do k <- getChar
-                 cursorBackward 1
-                 clearFromCursorToLineEnd
-                 return k
+getKeyPress = do
+    k <- getChar
+    cursorBackward 1
+    clearFromCursorToLineEnd
+    return k
 
-printBoard :: [Mark] -> Int -> IO ()
+printBoard :: Board -> Cursor -> IO ()
 printBoard b c = replicateM_ 5 eraseLine >> putStr (showBoard b c)
 
-printBoard1 :: [Mark] -> IO ()
+printBoard1 :: Board -> IO ()
 printBoard1 b = printBoard b (negate 1)
 
 gameLoop :: GameState -> IO ()
-gameLoop gs@(InPlay b c t) = do
-    printBoard b c
-    putStr $ show t
+gameLoop gs@(board, cursor, turn) = do
+    printBoard board cursor
+    putStr $ show turn
     putStr "'s turn."
     hFlush stdout
+    munchNextInput gs
 
-    stateTransform <- getStateTransition
-    gameLoop $ stateTransform gs
-  where
-    getStateTransition = do k <- getKeyPress
-                            case k of
-                              'w' -> return $ moveCursor Up
-                              'a' -> return $ moveCursor Left
-                              's' -> return $ moveCursor Down
-                              'd' -> return $ moveCursor Right
-                              'e' -> return placeMark
-                              'q' -> return quitGame
-                              _   -> getStateTransition
+munchNextInput :: GameState -> IO ()
+munchNextInput gs@(board, cursor, turn) = do
+    k <- getKeyPress
+    case k of
+      'w' -> gameLoop (board, moveCursorUp    cursor, turn)
+      'a' -> gameLoop (board, moveCursorLeft  cursor, turn)
+      's' -> gameLoop (board, moveCursorDown  cursor, turn)
+      'd' -> gameLoop (board, moveCursorRight cursor, turn)
+      'e' -> placeMark gs
+      'q' -> quitMessage
+      _   -> munchNextInput gs
 
-gameLoop gs@(Won b t) = do
-    printBoard1 b
-    if t == Vacant
+winScreen :: Board -> Mark -> IO ()
+winScreen board who = do
+    printBoard1 board
+    if who == Vacant
       then putStrLn "It's a tie."
-      else putStr (show t) >> putStrLn " won."
-    putStr "New game? [y/n]"
-    hFlush stdout
-    promtUser
-  where promtUser = do k <- getKeyPress
-                       case k of
-                         'y' -> clearLine >> putStr "\n" >> startNewGame
-                         'n' -> eraseLine >> gameLoop Quit
-                         _   -> promtUser
+      else putStr (show who) >> putStrLn " won."
+    isReplay <- askUser "New game?"
+    if isReplay
+      then clearLine >> putStr "\n" >> startNewGame
+      else eraseLine >> quitMessage
 
-gameLoop Quit = do
-  putStrLn "\n\nGoodbye"
-  return ()
+askUser :: String -> IO Bool
+askUser prompt = do
+    putStr prompt
+    putStr " [y/n]"
+    hFlush stdout
+    fadSnip
+  where fadSnip = do k <- getKeyPress
+                     case k of
+                       'y' -> return True
+                       'n' -> return False
+                       _   -> fadSnip
+
+quitMessage :: IO ()
+quitMessage = putStrLn "\n\nGoodbye"
 
 startNewGame :: IO ()
-startNewGame = putStr "\n\n\n\n\n" >> gameLoop (InPlay (replicate 9 Vacant) 4 X)
+startNewGame = putStr "\n\n\n\n\n" >> gameLoop (replicate 9 Vacant, 4, X)
 
 main :: IO ()
 main = do
-  hSetBuffering stdin NoBuffering
-  hideCursor
-  startNewGame
-  showCursor
+    originalBuffering <- hGetBuffering stdin
+    hSetBuffering stdin NoBuffering
+    hideCursor
+    hSetEcho stdin False
+
+    startNewGame
+
+    hSetEcho stdin True
+    showCursor
+    hSetBuffering stdin originalBuffering

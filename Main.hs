@@ -9,7 +9,7 @@ import           System.IO
 data Mark = Vacant | O | X
   deriving (Eq)
 type Cursor = Int
-type Board = [Mark]
+type Board = ([Mark], Int)
 type GameState = (Board, Cursor, Mark)
 
 -- Basic Functions --
@@ -18,17 +18,11 @@ replaceNth :: Int -> a -> [a] -> [a]
 replaceNth n newX (x:xs) | n == 0 = newX:xs
                          | otherwise = x:replaceNth (n-1) newX xs
 
-moveCursorUp    :: Cursor -> Cursor
-moveCursorUp    c = (c - 3) `mod` 9
-
-moveCursorDown  :: Cursor -> Cursor
-moveCursorDown  c = (c + 3) `mod` 9
-
-moveCursorLeft  :: Cursor -> Cursor
-moveCursorLeft  c = (c - 1) `mod` 3 + ((c `quot` 3) * 3)
-
-moveCursorRight :: Cursor -> Cursor
-moveCursorRight c = (c + 1) `mod` 3 + ((c `quot` 3) * 3)
+moveCursorUp, moveCursorDown, moveCursorLeft, moveCursorRight :: Int -> Cursor -> Cursor
+moveCursorUp    s c = (c - s) `mod` (s*s)
+moveCursorDown  s c = (c + s) `mod` (s*s)
+moveCursorLeft  s c = (c - 1) `mod` s + ((c `quot` s) * s)
+moveCursorRight s c = (c + 1) `mod` s + ((c `quot` s) * s)
 
 nextTurn :: Mark -> Mark
 nextTurn O = X
@@ -36,15 +30,15 @@ nextTurn X = O
 nextTurn x = x
 
 isFull :: Board -> Bool
-isFull = notElem Vacant
+isFull (ms, _) = Vacant `notElem` ms
 
 isWin :: Mark -> Board -> Bool
-isWin t b = any (all (== t)) $ map (map (b !!)) winSpans
+isWin t (ms, s) = any (all (== t)) $ map (map (ms !!)) winSpans
   where
     winSpans :: [[Int]]
     winSpans = rows ++ cols ++ dias
-      where ns = [0..2]
-            ks = map (*3) ns
+      where ns = [0..(s-1)]
+            ks = map (*s) ns
             rows = [[n + k | n <- ns] | k <- ks]
             cols = [[n + k | k <- ks] | n <- ns]
             dias = [zipWith (+) ns ks, zipWith (+) ns (reverse ks)]
@@ -57,13 +51,13 @@ instance Show Mark where
   show X      = "X"
 
 showBoard :: Board -> Cursor -> String
-showBoard b c = concat $ zipWith (++) shownSquares
-    ["|","|","\n--+--+--\n",
-     "|","|","\n--+--+--\n",
-     "|","|","\n"]
+showBoard (ms, s) c = concat $ zipWith (++) shownSquares looink
   where
-    shownCursor = [if c == n then '>' else ' ' | n <- [0..8]]
-    shownSquares = zipWith (:) shownCursor (map show b)
+    shownCursor = [if c == n then '>' else ' ' | n <- [0..(s*s-1)]]
+    shownSquares = zipWith (:) shownCursor (map show ms)
+    looink = (iterate ((bap++[stap])++) (bap ++ ["\n"])) !! (s-1)
+    bap = replicate (s-1) "|"
+    stap = '\n' : ((iterate ("--+"++) "--\n") !! (s-1))
 
 -- Output/Rendering --
 
@@ -71,7 +65,7 @@ eraseLine :: IO ()
 eraseLine = clearLine >> cursorUpLine 1
 
 printBoard :: Board -> Cursor -> IO ()
-printBoard b c = replicateM_ 5 eraseLine >> putStr (showBoard b c)
+printBoard b@(_, s) c = replicateM_ (s*2-1) eraseLine >> putStr (showBoard b c)
 
 printBoard1 :: Board -> IO ()
 printBoard1 b = printBoard b (negate 1)
@@ -101,20 +95,20 @@ gameLoop gs@(board, cursor, turn) = do
     munchNextInput gs
 
 munchNextInput :: GameState -> IO ()
-munchNextInput gs@(board, cursor, turn) = do
+munchNextInput gs@(board@(_, s), cursor, turn) = do
     k <- getChar
     case k of
-      'w' -> gameLoop (board, moveCursorUp    cursor, turn)
-      'a' -> gameLoop (board, moveCursorLeft  cursor, turn)
-      's' -> gameLoop (board, moveCursorDown  cursor, turn)
-      'd' -> gameLoop (board, moveCursorRight cursor, turn)
+      'w' -> gameLoop (board, moveCursorUp    s cursor, turn)
+      'a' -> gameLoop (board, moveCursorLeft  s cursor, turn)
+      's' -> gameLoop (board, moveCursorDown  s cursor, turn)
+      'd' -> gameLoop (board, moveCursorRight s cursor, turn)
       'e' -> placeMark gs
       'q' -> quitGame
       _   -> munchNextInput gs
 
 placeMark :: GameState -> IO ()
-placeMark gs@(b, c, t)
-    | b !! c == Vacant = winCheck (replaceNth c t b, c, t)
+placeMark gs@(b@(ms, s), c, t)
+    | ms !! c == Vacant = winCheck ((replaceNth c t ms, s), c, t)
     | otherwise = gameLoop gs
 
 winCheck :: GameState -> IO ()
@@ -138,17 +132,26 @@ quitGame :: IO ()
 quitGame = putStrLn "\n\nGoodbye"
 
 startNewGame :: IO ()
-startNewGame = putStr "\n\n\n\n\n" >> gameLoop (replicate 9 Vacant, 4, X)
+startNewGame = do
+    hSetEcho stdin True
+    showCursor
+    hSetBuffering stdin LineBuffering
 
-main :: IO ()
-main = do
-    originalBuffering <- hGetBuffering stdin
+    putStr "What size board do you whant to play? (default 3): "
+    hFlush stdout
+    s <- ( getLine >>= (\l -> return $ (read l :: Int)))
+
     hSetBuffering stdin NoBuffering
     hideCursor
     hSetEcho stdin False
 
+    putStr (replicate (s*2-1) '\n')
+    gameLoop ((replicate (s*s) Vacant, s), 0, X)
+
+main :: IO ()
+main = do
     startNewGame
 
     hSetEcho stdin True
     showCursor
-    hSetBuffering stdin originalBuffering
+    hSetBuffering stdin LineBuffering
